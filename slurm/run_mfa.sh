@@ -5,7 +5,7 @@
 #SBATCH --partition=standard
 #SBATCH --cpus-per-task=48
 #SBATCH --mem=200gb
-#SBATCH --nodelist=node022
+#SBATCH --nodelist=node021
 #SBATCH --time=2-00:00:00
 
 podman pull mmcauliffe/montreal-forced-aligner:latest
