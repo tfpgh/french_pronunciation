@@ -362,6 +362,7 @@ dependencies = [
     { name = "montreal-forced-aligner" },
     { name = "pandas" },
     { name = "torch" },
+    { name = "tqdm" },
     { name = "transformers" },
 ]
 
@@ -371,6 +372,7 @@ requires-dist = [
     { name = "montreal-forced-aligner", specifier = ">=3.3.8" },
     { name = "pandas", specifier = ">=3.0.0" },
     { name = "torch", specifier = ">=2.10.0" },
+    { name = "tqdm", specifier = ">=4.67.2" },
     { name = "transformers", specifier = ">=5.0.0" },
 ]
 
