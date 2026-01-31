@@ -8,20 +8,37 @@
 #SBATCH --nodelist=node021
 #SBATCH --time=2-00:00:00
 
-podman pull mmcauliffe/montreal-forced-aligner:latest
+MAMBA_EXE="/storage/tpenner/bin/micromamba"
+MAMBA_ROOT="/storage/tpenner/micromamba_root"
+export MAMBA_ROOT_PREFIX=$MAMBA_ROOT
 
-mkdir -p /storage/tpenner/mfa_data
+DATA_DIR="/storage/tpenner/french_pronunciation_dataset"
+OUT_DIR="/storage/tpenner/french_pronunciation_mfa_output"
+TEMP_DIR="/storage/tpenner/mfa_temp"
 
-podman run --rm -it \
-    --userns=keep-id \
-    -v /storage/penner:/storage/tpenner \
-    -e MFA_ROOT_DIR=/storage/tpenner/mfa_data \
-    docker.io/mmcauliffe/montreal-forced-aligner:latest \
-    mfa model download dictionary french_mfa
+mkdir -p $OUT_DIR
+mkdir -p $TEMP_DIR
 
-podman run --rm -it \
-    --userns=keep-id \
-    -v /storage/penner:/storage/tpenner \
-    -e MFA_ROOT_DIR=/storage/tpenner/mfa_data \
-    docker.io/mmcauliffe/montreal-forced-aligner:latest \
-    mfa model download acoustic french_mfa
+$MAMBA_EXE run -n mfa \
+    mfa align \
+    $DATA_DIR/test \
+    french_mfa \
+    french_mfa \
+    $OUT_DIR \
+    -j 46 \
+    -t $TEMP_DIR \
+    --clean \
+    --use_mp
+
+$MAMBA_EXE run -n mfa \
+    mfa align \
+    $DATA_DIR/train \
+    french_mfa \
+    french_mfa \
+    $OUT_DIR \
+    -j 46 \
+    -t $TEMP_DIR \
+    --clean \
+    --use_mp
+
+echo "Done."
