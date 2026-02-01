@@ -4,7 +4,7 @@
 #SBATCH --output=logs/%j.out
 #SBATCH --partition=gpu-standard
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=300gb
+#SBATCH --mem=200gb
 #SBATCH --gres=gpu:rtxa5000:4
 #SBATCH --time=2-00:00:00
 
