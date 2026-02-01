@@ -16,15 +16,13 @@ DATA_DIR="/storage/tpenner/french_pronunciation_dataset"
 OUT_DIR="/storage/tpenner/french_pronunciation_mfa_output"
 TEMP_DIR="/storage/tpenner/mfa_temp"
 
-mkdir -p $OUT_DIR
-mkdir -p $TEMP_DIR
-
 $MAMBA_EXE run -n mfa \
     mfa align \
     $DATA_DIR/test \
     french_mfa \
     french_mfa \
-    $OUT_DIR \
+    $OUT_DIR/test \
+    --g2p_model_path french_mfa \
     -j 46 \
     -t $TEMP_DIR \
     --clean \
@@ -35,10 +33,9 @@ $MAMBA_EXE run -n mfa \
     $DATA_DIR/train \
     french_mfa \
     french_mfa \
-    $OUT_DIR \
+    $OUT_DIR/train \
+    --g2p_model_path french_mfa \
     -j 46 \
     -t $TEMP_DIR \
     --clean \
     --use_mp
-
-echo "Done."
