@@ -12,8 +12,8 @@ from praatio import textgrid
 from torchcodec.decoders import AudioDecoder
 from tqdm import tqdm
 from transformers import (
-    Wav2Vec2BertModel,
-    Wav2Vec2BertProcessor,
+    AutoProcessor,
+    AutoModel,
 )
 
 SPLITS = ["test", "train"]
@@ -129,8 +129,8 @@ def gpu_worker(
 ) -> None:
     device = torch.device(f"cuda:{gpu_id}")
 
-    processor = Wav2Vec2BertProcessor.from_pretrained(MODEL_NAME)
-    model = Wav2Vec2BertModel.from_pretrained(MODEL_NAME).to(device).eval()  # pyright: ignore[reportArgumentType]
+    processor = AutoProcessor.from_pretrained(MODEL_NAME)
+    model = AutoModel.from_pretrained(MODEL_NAME).to(device).eval()  # pyright: ignore[reportArgumentType]
 
     mmaps = {
         layer: np.memmap(
