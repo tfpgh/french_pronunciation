@@ -7,6 +7,7 @@ import pandas as pd
 import praatio.utilities.constants
 import torch
 import torch.multiprocessing as mp
+from joblib import Parallel, delayed
 from loguru import logger
 from praatio import textgrid
 from torchcodec.decoders import AudioDecoder
@@ -30,6 +31,7 @@ NUM_LAYERS = 25
 HIDDEN_DIM = 1024
 
 NUM_GPUS = 4
+TEXTGRID_PROCESS_COUNT = 256
 
 
 @dataclass
@@ -183,8 +185,12 @@ def process_split(split: str) -> None:
     logger.info("Finding samples and parsing alignments")
     samples = get_split_samples(split)
 
-    for sample in tqdm(samples, desc="Parsing TextGrids", unit="samples"):
-        sample.alignment = parse_textgrid(sample.tg_path)
+    alignments = Parallel(n_jobs=TEXTGRID_PROCESS_COUNT, prefer="threads")(
+        delayed(parse_textgrid)(sample.tg_path) for sample in samples
+    )
+
+    for sample, alignment in zip(samples, alignments):
+        sample.alignment = alignment
 
     # Offsets
     offset = 0

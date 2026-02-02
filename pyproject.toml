@@ -4,6 +4,7 @@ version = "0.1.0"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "joblib>=1.5.3",
     "loguru>=0.7.3",
     "pandas>=3.0.0",
     "praatio>=6.2.2",
