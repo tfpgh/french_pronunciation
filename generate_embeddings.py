@@ -31,7 +31,7 @@ NUM_LAYERS = 25
 HIDDEN_DIM = 1024
 
 NUM_GPUS = 4
-TEXTGRID_PROCESS_COUNT = 256
+TEXTGRID_PROCESS_COUNT = 64
 
 
 @dataclass
@@ -185,7 +185,7 @@ def process_split(split: str) -> None:
     logger.info("Finding samples and parsing alignments")
     samples = get_split_samples(split)
 
-    alignments = Parallel(n_jobs=TEXTGRID_PROCESS_COUNT, prefer="threads")(
+    alignments = Parallel(n_jobs=TEXTGRID_PROCESS_COUNT, prefer="processes")(
         delayed(parse_textgrid)(sample.tg_path) for sample in samples
     )
 
