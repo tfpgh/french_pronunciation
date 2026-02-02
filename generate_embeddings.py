@@ -31,7 +31,9 @@ NUM_LAYERS = 25
 HIDDEN_DIM = 1024
 
 NUM_GPUS = 4
-TEXTGRID_PROCESS_COUNT = 64
+TEXTGRID_PROCESS_COUNT = 128
+
+MMAP_FLUSH_FREQUENCY = 1000  # Flush mmaps every x segments per GPU process
 
 
 @dataclass
@@ -146,7 +148,7 @@ def gpu_worker(
         for layer, path in mmap_paths.items()
     }
 
-    for item in tqdm(work_items, desc=f"GPU {gpu_id}", unit="samples"):
+    for i, item in enumerate(tqdm(work_items, desc=f"GPU {gpu_id}", unit="samples")):
         audio = load_audio(item.audio_path)
         inputs = feature_extractor(
             audio, sampling_rate=SAMPLE_RATE, return_tensors="pt"
@@ -171,6 +173,10 @@ def gpu_worker(
             for layer in range(NUM_LAYERS):
                 mean_emb = hidden_states[layer][0, start_frame:end_frame].mean(0)
                 mmaps[layer][global_idx] = mean_emb.cpu().numpy().astype(np.float16)
+
+        if i % MMAP_FLUSH_FREQUENCY == 0:
+            for mmap in mmaps.values():
+                mmap.flush()
 
     for mmap in mmaps.values():
         mmap.flush()

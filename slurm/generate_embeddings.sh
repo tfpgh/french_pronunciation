@@ -8,6 +8,6 @@
 #SBATCH --gres=gpu:rtxa5000:4
 #SBATCH --time=2-00:00:00
 
-export TQDM_MININTERVAL=15
+export TQDM_MININTERVAL=60
 
 uv run generate_embeddings.py
