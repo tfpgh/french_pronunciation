@@ -68,11 +68,20 @@ def get_split_samples(split: str) -> list[Sample]:
     tg_dir = MFA_OUTPUT_PATH / split
 
     for speaker_dir in audio_dir.iterdir():
+        if not speaker_dir.is_dir():
+            continue
+
         speaker_id = speaker_dir.name
         tg_speaker_dir = tg_dir / speaker_id
 
+        if not tg_speaker_dir.exists():
+            continue
+
         for audio_path in speaker_dir.glob("*.mp3"):
             tg_path = tg_speaker_dir / f"{audio_path.stem}.TextGrid"
+            if not tg_path.exists():
+                continue
+
             samples.append(
                 Sample(
                     sample_id=f"{speaker_id}/{audio_path.stem}",
