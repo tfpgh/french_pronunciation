@@ -139,7 +139,7 @@ def gpu_worker(
         for layer, path in mmap_paths.items()
     }
 
-    for item in tqdm(work_items, desc=f"GPU {gpu_id}", position=gpu_id):
+    for item in tqdm(work_items, desc=f"GPU {gpu_id}", unit="samples"):
         audio = load_audio(item.audio_path)
         inputs = feature_extractor(
             audio, sampling_rate=SAMPLE_RATE, return_tensors="pt"
