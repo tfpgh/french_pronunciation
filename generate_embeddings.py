@@ -12,7 +12,7 @@ from praatio import textgrid
 from torchcodec.decoders import AudioDecoder
 from tqdm import tqdm
 from transformers import (
-    AutoProcessor,
+    AutoFeatureExtractor,
     AutoModel,
 )
 
@@ -129,7 +129,7 @@ def gpu_worker(
 ) -> None:
     device = torch.device(f"cuda:{gpu_id}")
 
-    processor = AutoProcessor.from_pretrained(MODEL_NAME)
+    feature_extractor = AutoFeatureExtractor.from_pretrained(MODEL_NAME)
     model = AutoModel.from_pretrained(MODEL_NAME).to(device).eval()  # pyright: ignore[reportArgumentType]
 
     mmaps = {
@@ -141,7 +141,9 @@ def gpu_worker(
 
     for item in tqdm(work_items, desc=f"GPU {gpu_id}", position=gpu_id):
         audio = load_audio(item.audio_path)
-        inputs = processor(audio, sampling_rate=SAMPLE_RATE, return_tensors="pt")  # pyright: ignore[reportCallIssue]
+        inputs = feature_extractor(
+            audio, sampling_rate=SAMPLE_RATE, return_tensors="pt"
+        )  # pyright: ignore[reportCallIssue]
         inputs = {k: v.to(device) for k, v in inputs.items()}
 
         with torch.no_grad():
