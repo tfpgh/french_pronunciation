@@ -10,4 +10,4 @@
 
 export TQDM_MININTERVAL=60
 
-uv run generate_embeddings.py
+uv run python -u generate_embeddings.py
