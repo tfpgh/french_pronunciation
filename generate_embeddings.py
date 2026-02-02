@@ -125,8 +125,13 @@ def load_audio(path: Path) -> np.ndarray:
 
 
 def gpu_worker(
-    gpu_id: int, work_items: list[Sample], mmap_paths: dict, total_phonemes: int
+    gpu_id: int,
+    all_shards: list[list[Sample]],
+    mmap_paths: dict,
+    total_phonemes: int,
 ) -> None:
+    work_items = all_shards[gpu_id]
+
     device = torch.device(f"cuda:{gpu_id}")
 
     feature_extractor = AutoFeatureExtractor.from_pretrained(MODEL_NAME)
@@ -231,7 +236,6 @@ def process_split(split: str) -> None:
         ).flush()
 
     logger.info("Generating GPU shards")
-
     samples_per_gpu = len(samples) // NUM_GPUS
     shards: list[list[Sample]] = []
     for i in range(NUM_GPUS):
@@ -240,19 +244,12 @@ def process_split(split: str) -> None:
         shards.append(samples[start:end])
 
     logger.info(f"Launching {NUM_GPUS} GPU workers")
-    mp.set_start_method("spawn", force=True)
-
-    processes: list[mp.Process] = []
-    for gpu_id in range(NUM_GPUS):
-        p = mp.Process(
-            target=gpu_worker,
-            args=(gpu_id, shards[gpu_id], mmap_paths, total_phonemes),
-        )
-        p.start()
-        processes.append(p)
-
-    for p in processes:
-        p.join()
+    mp.spawn(  # pyright: ignore[reportPrivateImportUsage]
+        gpu_worker,
+        args=(shards, mmap_paths, total_phonemes),
+        nprocs=NUM_GPUS,
+        join=True,
+    )
 
     logger.success(f"Done with {split} split!")
 
