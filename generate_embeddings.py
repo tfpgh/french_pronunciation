@@ -16,6 +16,7 @@ from transformers import (
     AutoFeatureExtractor,
     AutoModel,
 )
+from transformers.utils.logging import disable_progress_bar
 
 SPLITS = ["test", "train"]
 
@@ -27,8 +28,8 @@ OUTPUT_PATH = Path("/storage/tpenner/french_pronunciation_embeddings")
 MODEL_NAME = "facebook/w2v-bert-2.0"
 SAMPLE_RATE = 16000
 FRAME_RATE = 0.020
-NUM_LAYERS = 25
 HIDDEN_DIM = 1024
+LAYERS_TO_SAVE = [4, 6, 8, 12]
 
 NUM_GPUS = 4
 TEXTGRID_PROCESS_COUNT = 32
@@ -170,7 +171,7 @@ def gpu_worker(
 
             global_idx = item.offset + phoneme_idx
 
-            for layer in range(NUM_LAYERS):
+            for layer in LAYERS_TO_SAVE:
                 mean_emb = hidden_states[layer][0, start_frame:end_frame].mean(0)
                 mmaps[layer][global_idx] = mean_emb.cpu().numpy().astype(np.float16)
 
@@ -240,7 +241,7 @@ def process_split(split: str) -> None:
 
     logger.info("Creating memmaps")
     mmap_paths: dict[int, Path] = {}
-    for layer in range(NUM_LAYERS):
+    for layer in LAYERS_TO_SAVE:
         path = split_output_path / f"layer_{layer:02d}.npy"
         mmap_paths[layer] = path
         np.memmap(
@@ -267,6 +268,8 @@ def process_split(split: str) -> None:
 
 
 if __name__ == "__main__":
+    disable_progress_bar()
+
     OUTPUT_PATH.mkdir(exist_ok=True)
     for split in SPLITS:
         process_split(split)
