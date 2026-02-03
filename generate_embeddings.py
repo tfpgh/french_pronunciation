@@ -135,6 +135,8 @@ def gpu_worker(
     mmap_paths: dict,
     total_phonemes: int,
 ) -> None:
+    disable_progress_bar()
+
     work_items = all_shards[gpu_id]
 
     device = torch.device(f"cuda:{gpu_id}")
@@ -268,8 +270,6 @@ def process_split(split: str) -> None:
 
 
 if __name__ == "__main__":
-    disable_progress_bar()
-
     OUTPUT_PATH.mkdir(exist_ok=True)
     for split in SPLITS:
         process_split(split)
