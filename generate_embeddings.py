@@ -33,6 +33,7 @@ LAYERS_TO_SAVE = [4, 6, 8, 12]
 
 NUM_GPUS = 4
 TEXTGRID_PROCESS_COUNT = 32
+THREADS_PER_WOKERS = 7
 
 MMAP_FLUSH_FREQUENCY = 1000  # Flush mmaps every x segments per GPU process
 
@@ -135,6 +136,8 @@ def gpu_worker(
     mmap_paths: dict,
     total_phonemes: int,
 ) -> None:
+    torch.set_num_threads(THREADS_PER_WOKERS)
+
     disable_progress_bar()
 
     work_items = all_shards[gpu_id]
