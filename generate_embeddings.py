@@ -10,6 +10,7 @@ import torch.multiprocessing as mp
 from joblib import Parallel, delayed
 from loguru import logger
 from praatio import textgrid
+from torch.utils.data import DataLoader, Dataset
 from torchcodec.decoders import AudioDecoder
 from tqdm import tqdm
 from transformers import (
@@ -33,7 +34,6 @@ LAYERS_TO_SAVE = [4, 6, 8, 12]
 
 NUM_GPUS = 4
 TEXTGRID_PROCESS_COUNT = 32
-THREADS_PER_WOKERS = 7
 
 MMAP_FLUSH_FREQUENCY = 1000  # Flush mmaps every x segments per GPU process
 
@@ -66,6 +66,34 @@ class Metadata:
     num_phonemes: int
     start_sec: float
     end_sec: float
+
+
+class AudioDataset(Dataset):
+    def __init__(
+        self, samples: list[Sample], model_name: str, sample_rate: int
+    ) -> None:
+        self.samples = samples
+        self.sample_rate = sample_rate
+        self.feature_extractor = AutoFeatureExtractor.from_pretrained(model_name)
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def __getitem__(self, idx: int) -> tuple[dict, int]:
+        item = self.samples[idx]
+
+        decoder = AudioDecoder(
+            item.audio_path,
+            sample_rate=self.sample_rate,
+            num_channels=1,
+        )
+        audio = decoder.get_all_samples().data.squeeze().numpy()
+
+        inputs = self.feature_extractor(
+            audio, sampling_rate=self.sample_rate, return_tensors="pt"
+        )
+
+        return {k: v.squeeze(0) for k, v in inputs.items()}, idx
 
 
 def get_split_samples(split: str) -> list[Sample]:
@@ -136,7 +164,7 @@ def gpu_worker(
     mmap_paths: dict,
     total_phonemes: int,
 ) -> None:
-    torch.set_num_threads(THREADS_PER_WOKERS)
+    torch.set_num_threads(1)
 
     disable_progress_bar()
 
@@ -144,7 +172,6 @@ def gpu_worker(
 
     device = torch.device(f"cuda:{gpu_id}")
 
-    feature_extractor = AutoFeatureExtractor.from_pretrained(MODEL_NAME)
     model = AutoModel.from_pretrained(MODEL_NAME).to(device).eval()  # pyright: ignore[reportArgumentType]
 
     mmaps = {
@@ -154,11 +181,22 @@ def gpu_worker(
         for layer, path in mmap_paths.items()
     }
 
-    for i, item in enumerate(tqdm(work_items, desc=f"GPU {gpu_id}", unit="samples")):
-        audio = load_audio(item.audio_path)
-        inputs = feature_extractor(
-            audio, sampling_rate=SAMPLE_RATE, return_tensors="pt"
-        )  # pyright: ignore[reportCallIssue]
+    dataset = AudioDataset(work_items, MODEL_NAME, SAMPLE_RATE)
+    loader = DataLoader(
+        dataset,
+        batch_size=1,  # Keep it 1 to match your original logic
+        shuffle=False,  # Order matters for index alignment
+        num_workers=6,  # 4 Loaders + 1 Main process = 5 cores used per GPU (20 total used across system)
+        prefetch_factor=2,  # Buffer 2 batches per worker
+        pin_memory=True,  # Faster transfer to GPU
+    )
+
+    for i, (inputs, idx_tensor) in enumerate(
+        tqdm(loader, desc=f"GPU {gpu_id}", unit="samples")
+    ):
+        idx = idx_tensor.item()
+        original_item = work_items[idx]
+
         inputs = {k: v.to(device) for k, v in inputs.items()}
 
         with torch.no_grad():
@@ -167,14 +205,14 @@ def gpu_worker(
         hidden_states = outputs.hidden_states
         num_frames = hidden_states[0].shape[1]
 
-        assert item.alignment is not None and item.offset is not None
-        for phoneme_idx, phoneme in enumerate(item.alignment):
+        assert original_item.alignment is not None and original_item.offset is not None
+        for phoneme_idx, phoneme in enumerate(original_item.alignment):
             start_frame = max(0, min(int(phoneme.start / FRAME_RATE), num_frames - 1))
             end_frame = max(
                 start_frame + 1, min(int(phoneme.end / FRAME_RATE), num_frames)
             )
 
-            global_idx = item.offset + phoneme_idx
+            global_idx = original_item.offset + phoneme_idx
 
             for layer in LAYERS_TO_SAVE:
                 mean_emb = hidden_states[layer][0, start_frame:end_frame].mean(0)
