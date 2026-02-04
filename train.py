@@ -13,7 +13,7 @@ from tqdm import tqdm
 AUDIO_EMBEDDINGS_PATH = Path("/storage/tpenner/french_pronunciation_embeddings")
 CHECKPOINT_PATH = Path("/storage/tpenner/french_pronunciation_checkpoints")
 
-AUDIO_EMBEDDING_LAYER = 10  # Internal layer to use from the audio embedding model
+AUDIO_EMBEDDING_LAYER = 6  # Internal layer to use from the audio embedding model
 AUDIO_EMBEDDING_DIM = 1024
 SHARED_EMBEDDING_DIM = 256
 
