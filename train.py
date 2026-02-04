@@ -59,6 +59,14 @@ class PhonemeDataset(Dataset):
 
         self.phoneme_to_idx = phoneme_to_idx
 
+        logger.info("Sorting dataset by sample length")
+        self.metadata["length"] = self.metadata["sample_id"].apply(
+            lambda x: len(self.sequences[x])
+        )
+        self.metadata = self.metadata.sort_values(
+            "length", ascending=False
+        ).reset_index(drop=True)
+
     def __len__(self):
         return len(self.metadata)
 
@@ -215,7 +223,6 @@ def average_metrics(val, world_size):
 
 
 def train() -> None:
-    dist.init_process_group()
     local_rank = int(os.environ["LOCAL_RANK"])
 
     logger.info(f"Starting process with rank {local_rank}")
@@ -224,8 +231,9 @@ def train() -> None:
     if local_rank == 0:
         logger.add(sys.stderr, level="INFO")
 
-    torch.cuda.set_device(local_rank)
     device = torch.device(f"cuda:{local_rank}")
+    torch.cuda.set_device(device)
+    dist.init_process_group(backend="nccl", device_id=device)
 
     CHECKPOINT_PATH.mkdir(exist_ok=True)
 
@@ -242,7 +250,7 @@ def train() -> None:
 
     dist.barrier()
 
-    train_sampler = DistributedSampler(train_dataset, shuffle=True)
+    train_sampler = DistributedSampler(train_dataset, shuffle=False)
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
