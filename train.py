@@ -41,10 +41,17 @@ class PhonemeDataset(Dataset):
         logger.info(
             f"Loading layer {AUDIO_EMBEDDING_LAYER} embeddings for {split} split"
         )
-        self.audio_embeddings = np.load(
+        num_phonemes = len(self.metadata)
+        mmap = np.memmap(
             split_path / f"layer_{AUDIO_EMBEDDING_LAYER:02d}.npy",
-            allow_pickle=True,
+            dtype=np.float16,
+            mode="r",
+            shape=(num_phonemes, AUDIO_EMBEDDING_DIM),
         )
+
+        # Load mmap into memory
+        self.audio_embeddings = np.array(mmap)
+        del mmap
 
         self.phoneme_to_idx = phoneme_to_idx
 
