@@ -25,10 +25,12 @@ AUDIO_EMBEDDING_LAYER = 6  # Internal layer to use from the audio embedding mode
 AUDIO_EMBEDDING_DIM = 1024
 SHARED_EMBEDDING_DIM = 256
 
+AUDIO_PROJECTION_DROPOUT = 0.3
+
 TEXT_ENCODER_DIM = 512
 TEXT_ENCODER_LAYERS = 4
 TEXT_ENCODER_HEADS = 8
-TEXT_ENCODER_DROPOUT = 0.1
+TEXT_ENCODER_DROPOUT = 0.3
 
 BATCH_SIZE = 1024
 POOL_FACTOR = 25
@@ -179,6 +181,7 @@ class AudioProjection(nn.Module):
         self.proj = nn.Sequential(
             nn.Linear(AUDIO_EMBEDDING_DIM, AUDIO_EMBEDDING_DIM),
             nn.ReLU(),
+            nn.Dropout(AUDIO_PROJECTION_DROPOUT),
             nn.Linear(AUDIO_EMBEDDING_DIM, SHARED_EMBEDDING_DIM),
         )
 
@@ -203,7 +206,7 @@ class PronunciationModel(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         text_emb = self.text_encoder(sequence_ids, mask, positions)
         audio_emb = self.audio_proj(audio_emb)
-        temp = self.log_temp.exp().clamp(min=0.01, max=1.0)
+        temp = self.log_temp.exp().clamp(min=0.03, max=1.0)
         return text_emb, audio_emb, temp
 
 
