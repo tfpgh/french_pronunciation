@@ -9,5 +9,6 @@
 #SBATCH --time=2-00:00:00
 
 export TQDM_MININTERVAL=60
+export PYTHONUNBUFFERED=1
 
-uv run python -u train.py
+uv run torchrun --nproc_per_node=4 train.py

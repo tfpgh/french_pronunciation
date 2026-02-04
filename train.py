@@ -1,13 +1,19 @@
 import json
+import os
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
+import torch.distributed as dist
+import torch.distributed.nn as dist_nn
 import torch.nn as nn
 import torch.nn.functional as F
 from loguru import logger
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
 AUDIO_EMBEDDINGS_PATH = Path("/storage/tpenner/french_pronunciation_embeddings")
@@ -26,8 +32,6 @@ BATCH_SIZE = 1024
 LEARNING_RATE = 3e-4
 NUM_EPOCHS = 50
 INIT_TEMPERATURE = 0.07
-
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class PhonemeDataset(Dataset):
@@ -165,14 +169,24 @@ class PronunciationModel(nn.Module):
 def contrastive_loss(
     text_emb: torch.Tensor, audio_emb: torch.Tensor, temp: torch.Tensor
 ) -> torch.Tensor:
+    # Normalize local
     text_emb = F.normalize(text_emb, dim=-1)
     audio_emb = F.normalize(audio_emb, dim=-1)
 
-    logits = text_emb @ audio_emb.T / temp
-    labels = torch.arange(logits.size(0), device=logits.device)
+    # Gather from all GPUs
+    all_text = torch.cat(dist_nn.all_gather(text_emb), dim=0)
+    all_audio = torch.cat(dist_nn.all_gather(audio_emb), dim=0)
 
-    loss_t2a = F.cross_entropy(logits, labels)
-    loss_a2t = F.cross_entropy(logits.T, labels)
+    logits_t2a = text_emb @ all_audio.T / temp
+    logits_a2t = audio_emb @ all_text.T / temp
+
+    batch_size = text_emb.size(0)
+    rank = dist.get_rank()
+    start_idx = rank * batch_size
+    labels = torch.arange(start_idx, start_idx + batch_size, device=text_emb.device)
+
+    loss_t2a = F.cross_entropy(logits_t2a, labels)
+    loss_a2t = F.cross_entropy(logits_a2t, labels)
 
     return (loss_t2a + loss_a2t) / 2
 
@@ -193,7 +207,26 @@ def build_vocab() -> dict[str, int]:
     return vocab
 
 
+def average_metrics(val, world_size):
+    if isinstance(val, float):
+        val = torch.tensor(val, device=torch.cuda.current_device())
+    dist.all_reduce(val, op=dist.ReduceOp.SUM)
+    return val.item() / world_size
+
+
 def train() -> None:
+    dist.init_process_group()
+    local_rank = int(os.environ["LOCAL_RANK"])
+
+    logger.info(f"Starting process with rank {local_rank}")
+
+    logger.remove()
+    if local_rank == 0:
+        logger.add(sys.stderr, level="INFO")
+
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
+
     CHECKPOINT_PATH.mkdir(exist_ok=True)
 
     logger.info("Building vocabulary")
@@ -207,29 +240,40 @@ def train() -> None:
     train_dataset = PhonemeDataset("train", phoneme_to_idx)
     test_dataset = PhonemeDataset("test", phoneme_to_idx)
 
+    dist.barrier()
+
+    train_sampler = DistributedSampler(train_dataset, shuffle=True)
     train_loader = DataLoader(
         train_dataset,
         batch_size=BATCH_SIZE,
-        shuffle=True,
+        sampler=train_sampler,
+        shuffle=False,
         collate_fn=collate_fn,
         num_workers=8,
         persistent_workers=True,
         pin_memory=True,
+        drop_last=True,
     )
+
+    test_sampler = DistributedSampler(test_dataset, shuffle=False)
     test_loader = DataLoader(
         test_dataset,
         batch_size=BATCH_SIZE,
+        sampler=test_sampler,
         shuffle=False,
         collate_fn=collate_fn,
         num_workers=4,
         persistent_workers=True,
         pin_memory=True,
+        drop_last=True,
     )
 
     logger.info(f"Train: {len(train_dataset):,} phonemes")
     logger.info(f"Test: {len(test_dataset):,} phonemes")
 
-    model = PronunciationModel(len(phoneme_to_idx)).to(DEVICE)
+    model = PronunciationModel(len(phoneme_to_idx)).to(device)
+    model = DDP(model, device_ids=[local_rank], output_device=local_rank)
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, NUM_EPOCHS)
 
@@ -239,13 +283,17 @@ def train() -> None:
     best_test_loss = float("inf")
 
     for epoch in range(NUM_EPOCHS):
+        train_sampler.set_epoch(epoch)
+
         model.train()
         train_loss = 0.0
 
         temp = None
 
-        for batch in tqdm(train_loader, desc=f"Epoch {epoch+1}"):
-            batch = {k: v.to(DEVICE) for k, v in batch.items()}
+        for batch in tqdm(
+            train_loader, desc=f"Epoch {epoch+1}", disable=local_rank != 0
+        ):
+            batch = {k: v.to(device) for k, v in batch.items()}
 
             text_emb, audio_emb, temp = model(**batch)
             loss = contrastive_loss(text_emb, audio_emb, temp)
@@ -258,18 +306,25 @@ def train() -> None:
             train_loss += loss.item()
 
         train_loss /= len(train_loader)
+
+        world_size = dist.get_world_size()
+        avg_train_loss = average_metrics(train_loss, world_size)
+
         scheduler.step()
 
         model.eval()
         test_loss = 0.0
 
         with torch.no_grad():
-            for batch in tqdm(test_loader, desc=f"Epoch {epoch+1} [test]"):
-                batch = {k: v.to(DEVICE) for k, v in batch.items()}
+            for batch in tqdm(
+                test_loader, desc=f"Epoch {epoch+1} [test]", disable=local_rank != 0
+            ):
+                batch = {k: v.to(device) for k, v in batch.items()}
                 text_emb, audio_emb, temp = model(**batch)
                 test_loss += contrastive_loss(text_emb, audio_emb, temp).item()
 
         test_loss /= len(test_loader)
+        avg_test_loss = average_metrics(test_loss, world_size)
 
         if temp is None:
             temp_str = "None"
@@ -277,23 +332,26 @@ def train() -> None:
             temp_str = f"{temp.item():.4f}"
 
         logger.info(
-            f"Epoch {epoch+1}: train={train_loss:.4f} test={test_loss:.4f} temp={temp_str}"
+            f"Epoch {epoch+1}: train={avg_train_loss:.4f} test={avg_test_loss:.4f} temp={temp_str}"
         )
 
-        if test_loss < best_test_loss:
-            best_test_loss = test_loss
-            torch.save(
-                {
-                    "epoch": epoch,
-                    "model": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "train_loss": train_loss,
-                    "test_loss": test_loss,
-                    "vocab": phoneme_to_idx,
-                },
-                CHECKPOINT_PATH / "best.pt",
-            )
-            logger.success(f"Saved best model (test_loss={test_loss:.4f})")
+        if avg_test_loss < best_test_loss:
+            best_test_loss = avg_test_loss
+            if local_rank == 0:
+                torch.save(
+                    {
+                        "epoch": epoch,
+                        "model": model.module.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "train_loss": avg_train_loss,
+                        "test_loss": avg_test_loss,
+                        "vocab": phoneme_to_idx,
+                    },
+                    CHECKPOINT_PATH / "best.pt",
+                )
+                logger.success(f"Saved best model (test_loss={test_loss:.4f})")
+
+        dist.barrier()  # Don't start until save is done
 
 
 if __name__ == "__main__":
