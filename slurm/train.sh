@@ -10,5 +10,6 @@
 
 export TQDM_MININTERVAL=60
 export PYTHONUNBUFFERED=1
+export OMP_NUM_THREADS=1
 
 uv run torchrun --nproc_per_node=4 train.py
