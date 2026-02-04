@@ -42,7 +42,8 @@ class PhonemeDataset(Dataset):
             f"Loading layer {AUDIO_EMBEDDING_LAYER} embeddings for {split} split"
         )
         self.audio_embeddings = np.load(
-            split_path / f"layer_{AUDIO_EMBEDDING_LAYER:02d}.npy"
+            split_path / f"layer_{AUDIO_EMBEDDING_LAYER:02d}.npy",
+            allow_pickle=True,
         )
 
         self.phoneme_to_idx = phoneme_to_idx
