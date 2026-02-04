@@ -16,7 +16,6 @@ from torch.amp.grad_scaler import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
-from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 
 AUDIO_EMBEDDINGS_PATH = Path("/storage/tpenner/french_pronunciation_embeddings")
@@ -32,6 +31,7 @@ TEXT_ENCODER_HEADS = 8
 TEXT_ENCODER_DROPOUT = 0.1
 
 BATCH_SIZE = 2048
+POOL_FACTOR = 50
 LEARNING_RATE = 3e-4
 NUM_EPOCHS = 50
 INIT_TEMPERATURE = 0.07
@@ -46,13 +46,8 @@ class PhonemeDataset(Dataset):
         with open(split_path / "phoneme_sequences.json") as f:
             raw_sequences = json.load(f)
 
-        # Sort by length for minimal padding
-        logger.info(f"Sorting {split} split")
-        metadata_df["length"] = metadata_df["sample_id"].apply(
-            lambda x: len(raw_sequences[x])
-        )
-        metadata_df = metadata_df.sort_values("length", ascending=False).reset_index(
-            drop=True
+        self.lengths = (
+            metadata_df["sample_id"].apply(lambda x: len(raw_sequences[x])).values
         )
 
         # Get rid of iloc lookups
@@ -92,6 +87,43 @@ class PhonemeDataset(Dataset):
                 self.audio_embeddings[self.global_idxs[idx]].copy()
             ),
         }
+
+
+class DistributedSampler:
+    def __init__(
+        self,
+        dataset: PhonemeDataset,  # Pyright doesn't like typing as Dataset
+    ):
+        self.dataset = dataset
+        self.epoch = 0
+        self.rank = dist.get_rank()
+        self.num_replicas = dist.get_world_size()
+
+    def __iter__(self):
+        g = torch.Generator()
+        g.manual_seed(self.epoch)
+        indices = torch.randperm(len(self.dataset), generator=g).tolist()
+
+        total_size = len(self.dataset) - (len(self.dataset) % self.num_replicas)
+        indices = indices[:total_size]
+
+        indices = indices[self.rank :: self.num_replicas]
+
+        pool_size = BATCH_SIZE * POOL_FACTOR
+        lengths = self.dataset.lengths
+
+        for i in range(0, len(indices), pool_size):
+            pool = indices[i : i + pool_size]
+            pool.sort(key=lambda idx: lengths[idx], reverse=True)
+
+            for j in range(0, len(pool) - BATCH_SIZE + 1, BATCH_SIZE):
+                yield pool[j : j + BATCH_SIZE]
+
+    def __len__(self):
+        return (len(self.dataset) // self.num_replicas) // BATCH_SIZE
+
+    def set_epoch(self, epoch: int):
+        self.epoch = epoch
 
 
 def collate_fn(batch):
@@ -251,30 +283,24 @@ def train() -> None:
 
     dist.barrier()
 
-    train_sampler = DistributedSampler(train_dataset, shuffle=False)
+    train_sampler = DistributedSampler(train_dataset)
     train_loader = DataLoader(
         train_dataset,
-        batch_size=BATCH_SIZE,
-        sampler=train_sampler,
-        shuffle=False,
+        batch_sampler=train_sampler,
         collate_fn=collate_fn,
         num_workers=3,
         persistent_workers=True,
         pin_memory=True,
-        drop_last=True,
     )
 
-    test_sampler = DistributedSampler(test_dataset, shuffle=False)
+    test_sampler = DistributedSampler(test_dataset)
     test_loader = DataLoader(
         test_dataset,
-        batch_size=BATCH_SIZE,
-        sampler=test_sampler,
-        shuffle=False,
+        batch_sampler=test_sampler,
         collate_fn=collate_fn,
         num_workers=3,
         persistent_workers=True,
         pin_memory=True,
-        drop_last=True,
     )
 
     logger.info(f"Train: {len(train_dataset):,} phonemes")
