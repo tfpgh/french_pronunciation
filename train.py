@@ -22,7 +22,7 @@ TEXT_ENCODER_LAYERS = 4
 TEXT_ENCODER_HEADS = 8
 TEXT_ENCODER_DROPOUT = 0.1
 
-BATCH_SIZE = 2048
+BATCH_SIZE = 1024
 LEARNING_RATE = 3e-4
 NUM_EPOCHS = 50
 INIT_TEMPERATURE = 0.07
@@ -221,7 +221,7 @@ def train() -> None:
         batch_size=BATCH_SIZE,
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=8,
+        num_workers=4,
         persistent_workers=True,
         pin_memory=True,
     )
