@@ -21,11 +21,11 @@ from tqdm import tqdm
 AUDIO_EMBEDDINGS_PATH = Path("/storage/tpenner/french_pronunciation_embeddings")
 CHECKPOINT_PATH = Path("/storage/tpenner/french_pronunciation_checkpoints")
 
-AUDIO_EMBEDDING_LAYER = 6  # Internal layer to use from the audio embedding model
+AUDIO_EMBEDDING_LAYER = 12  # Internal layer to use from the audio embedding model
 AUDIO_EMBEDDING_DIM = 1024
 SHARED_EMBEDDING_DIM = 256
 
-AUDIO_PROJECTION_DROPOUT = 0.5
+AUDIO_PROJECTION_DROPOUT = 0.3
 
 TEXT_ENCODER_DIM = 512
 TEXT_ENCODER_LAYERS = 4
@@ -37,9 +37,9 @@ POOL_FACTOR = 50
 LEARNING_RATE = 3e-4
 NUM_EPOCHS = 10
 INIT_TEMPERATURE = 0.07
-MIN_TEMPERATURE = 0.04
+MIN_TEMPERATURE = 0.05
 WEIGHT_DECAY = 0.1
-TRAIN_DATA_NOISE_SCALE = 0.08
+TRAIN_DATA_NOISE_SCALE = 0.05
 
 
 class PhonemeDataset(Dataset):
