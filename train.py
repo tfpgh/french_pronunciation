@@ -37,10 +37,14 @@ POOL_FACTOR = 25
 LEARNING_RATE = 3e-4
 NUM_EPOCHS = 50
 INIT_TEMPERATURE = 0.07
+WEIGHT_DECAY = 0.1
+TRAIN_DATA_NOISE_SCALE = 0.02
 
 
 class PhonemeDataset(Dataset):
     def __init__(self, split: str, phoneme_to_idx: dict[str, int]) -> None:
+        self.split = split
+
         split_path = AUDIO_EMBEDDINGS_PATH / split
 
         logger.info(f"Loading metadata and sequences for {split} split")
@@ -82,12 +86,18 @@ class PhonemeDataset(Dataset):
         sample_id = self.sample_ids[idx]
         sequence_ids = self.preprocessed_sequences[sample_id]
 
+        audio_emb = torch.from_numpy(
+            self.audio_embeddings[self.global_idxs[idx]].copy()
+        )
+
+        if self.split == "train":
+            noise = torch.randn_like(audio_emb) * TRAIN_DATA_NOISE_SCALE
+            audio_emb = audio_emb + noise
+
         return {
             "sequence_ids": torch.tensor(sequence_ids, dtype=torch.long),
             "position": self.positions[idx],
-            "audio_emb": torch.from_numpy(
-                self.audio_embeddings[self.global_idxs[idx]].copy()
-            ),
+            "audio_emb": audio_emb,
         }
 
 
@@ -206,7 +216,7 @@ class PronunciationModel(nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         text_emb = self.text_encoder(sequence_ids, mask, positions)
         audio_emb = self.audio_proj(audio_emb)
-        temp = self.log_temp.exp().clamp(min=0.03, max=1.0)
+        temp = self.log_temp.exp().clamp(min=0.01, max=1.0)
         return text_emb, audio_emb, temp
 
 
@@ -312,7 +322,11 @@ def train() -> None:
     model = PronunciationModel(len(phoneme_to_idx)).to(device)
     model = DDP(model, device_ids=[local_rank], output_device=local_rank)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
+    )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, NUM_EPOCHS)
 
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
